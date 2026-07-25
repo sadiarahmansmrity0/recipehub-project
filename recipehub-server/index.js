@@ -399,5 +399,190 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
+// CREATE RECIPE (Protected)
+app.post('/api/recipes', verifyToken, async (req, res) => {
+  try {
+    const { title, image, ingredients, instructions, category, cookingTime, isPremium } = req.body;
+
+    if (!title || !ingredients || !instructions || !category) {
+      return res.status(400).json({
+        success: false,
+        message: "Title, ingredients, instructions, and category are required"
+      });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    
+    const newRecipe = {
+      title,
+      image: image || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?q=80&w=800",
+      ingredients: Array.isArray(ingredients) ? ingredients : ingredients.split(',').map(i => i.trim()),
+      instructions: Array.isArray(instructions) ? instructions : instructions.split('\n').map(i => i.trim()),
+      category,
+      cookingTime: parseInt(cookingTime) || 30,
+      isPremium: isPremium === true || isPremium === 'true',
+      authorEmail: req.user.email,
+      authorName: req.user.name || "Anonymous",
+      likes: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await recipesCollection.insertOne(newRecipe);
+
+    return res.status(201).json({
+      success: true,
+      message: "Recipe created successfully",
+      recipe: { ...newRecipe, _id: result.insertedId }
+    });
+  } catch (error) {
+    console.error("Create recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to create recipe" });
+  }
+});
+// GET ALL RECIPES (Public / Optional Auth for Filtering)
+app.get('/api/recipes', getOptionalUser, async (req, res) => {
+  try {
+    const { category, search, authorEmail } = req.query;
+    const query = {};
+
+    if (category) {
+      query.category = { $regex: category, $options: 'i' };
+    }
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (authorEmail) {
+      query.authorEmail = authorEmail;
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipes = await recipesCollection.find(query).sort({ createdAt: -1 }).toArray();
+
+    return res.json({
+      success: true,
+      count: recipes.length,
+      recipes
+    });
+  } catch (error) {
+    console.error("Get recipes error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch recipes" });
+  }
+});
+
+// GET SINGLE RECIPE BY ID (Public / Optional Auth for Premium Content check)
+app.get('/api/recipes/:id', getOptionalUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    return res.json({
+      success: true,
+      recipe
+    });
+  } catch (error) {
+    console.error("Get single recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch recipe" });
+  }
+});
+// UPDATE RECIPE (Protected - Author or Admin)
+app.put('/api/recipes/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    // Check ownership or admin status
+    if (recipe.authorEmail !== req.user.email && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: "Unauthorized to update this recipe" });
+    }
+
+    const { title, image, ingredients, instructions, category, cookingTime, isPremium } = req.body;
+
+    const updateFields = {
+      updatedAt: new Date()
+    };
+
+    if (title) updateFields.title = title;
+    if (image) updateFields.image = image;
+    if (ingredients) updateFields.ingredients = Array.isArray(ingredients) ? ingredients : ingredients.split(',').map(i => i.trim());
+    if (instructions) updateFields.instructions = Array.isArray(instructions) ? instructions : instructions.split('\n').map(i => i.trim());
+    if (category) updateFields.category = category;
+    if (cookingTime) updateFields.cookingTime = parseInt(cookingTime);
+    if (isPremium !== undefined) updateFields.isPremium = isPremium === true || isPremium === 'true';
+
+    await recipesCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    const updatedRecipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    return res.json({
+      success: true,
+      message: "Recipe updated successfully",
+      recipe: updatedRecipe
+    });
+  } catch (error) {
+    console.error("Update recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update recipe" });
+  }
+});
+// DELETE RECIPE (Protected - Author or Admin)
+app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    // Check ownership or admin status
+    if (recipe.authorEmail !== req.user.email && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this recipe" });
+    }
+
+    await recipesCollection.deleteOne({ _id: new ObjectId(id) });
+
+    return res.json({
+      success: true,
+      message: "Recipe deleted successfully"
+    });
+  } catch (error) {
+    console.error("Delete recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to delete recipe" });
+  }
+});
 
 export default app;
