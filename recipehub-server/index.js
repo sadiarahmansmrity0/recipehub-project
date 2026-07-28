@@ -584,5 +584,212 @@ app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to delete recipe" });
   }
 });
+// Get Logged-in User Stats Overview (Protected)
+app.get('/api/auth/stats', verifyToken, async (req, res) => {
+  try {
+    const recipesCollection = getCollection('recipes');
+    const favoritesCollection = getCollection('favorites');
 
+    const totalRecipes = await recipesCollection.countDocuments({ authorEmail: req.user.email });
+    const totalFavorites = await favoritesCollection.countDocuments({ userId: req.user.id });
+
+    // Sum likesCount of all recipes authored by the user
+    const recipes = await recipesCollection.find({ authorEmail: req.user.email }).toArray();
+    const totalLikesReceived = recipes.reduce((sum, r) => sum + (r.likesCount || 0), 0);
+
+    return res.json({
+      success: true,
+      data: {
+        totalRecipes,
+        totalFavorites,
+        totalLikesReceived
+      }
+    });
+  } catch (error) {
+    console.error("User Stats Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch user stats overview" });
+  }
+});
+
+// Update User Profile (Protected)
+app.put('/api/auth/profile', verifyToken, async (req, res) => {
+  const { name, image } = req.body;
+  if (!name && !image) {
+    return res.status(400).json({ success: false, message: "Please provide name or image to update" });
+  }
+
+  try {
+    const usersCollection = getCollection('users');
+    const updateDoc = { updatedAt: new Date() };
+    if (name) updateDoc.name = name;
+    if (image) updateDoc.image = image;
+
+    const result = await usersCollection.updateOne(
+      { email: req.user.email },
+      { $set: updateDoc }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const updatedUser = await usersCollection.findOne({ email: req.user.email });
+    return res.json({
+      success: true,
+      message: "Profile updated successfully",
+      user: {
+        id: updatedUser._id.toString(),
+        name: updatedUser.name,
+        email: updatedUser.email,
+        image: updatedUser.image,
+        role: updatedUser.role || 'user',
+        isPremium: updatedUser.isPremium || false
+      }
+    });
+
+  } catch (error) {
+    console.error("Profile Update Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update profile" });
+  }
+});
+// List Favorite Recipes (Protected, joins with recipes collection)
+app.get('/api/favorites', verifyToken, async (req, res) => {
+  try {
+    const favoritesCollection = getCollection('favorites');
+    const favorites = await favoritesCollection.aggregate([
+      { $match: { userId: req.user.id } },
+      {
+        $lookup: {
+          from: 'recipes',
+          localField: 'recipeId',
+          foreignField: '_id',
+          as: 'recipeDetails'
+        }
+      },
+      { $unwind: '$recipeDetails' },
+      {
+        $project: {
+          _id: 1,
+          addedAt: 1,
+          recipeId: '$recipeDetails._id',
+          recipeName: '$recipeDetails.recipeName',
+          recipeImage: '$recipeDetails.recipeImage',
+          category: '$recipeDetails.category',
+          cuisineType: '$recipeDetails.cuisineType',
+          difficultyLevel: '$recipeDetails.difficultyLevel',
+          preparationTime: '$recipeDetails.preparationTime',
+          authorName: '$recipeDetails.authorName'
+        }
+      }
+    ]).toArray();
+
+    return res.json({ success: true, data: favorites });
+
+  } catch (error) {
+    console.error("Get Favorites Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch favorites" });
+  }
+});
+
+// Add Recipe to Favorites (Protected)
+app.post('/api/favorites', verifyToken, async (req, res) => {
+  const { recipeId } = req.body;
+  if (!recipeId) {
+    return res.status(400).json({ success: false, message: "Recipe ID is required" });
+  }
+
+  try {
+    const favoritesCollection = getCollection('favorites');
+    
+    // Check if already in favorites
+    const existing = await favoritesCollection.findOne({
+      userId: req.user.id,
+      recipeId: new ObjectId(recipeId)
+    });
+
+    if (existing) {
+      return res.status(400).json({ success: false, message: "Recipe is already in your favorites list" });
+    }
+
+    const newFavorite = {
+      userEmail: req.user.email,
+      userId: req.user.id,
+      recipeId: new ObjectId(recipeId),
+      addedAt: new Date()
+    };
+
+    await favoritesCollection.insertOne(newFavorite);
+    return res.status(201).json({ success: true, message: "Added to favorites" });
+
+  } catch (error) {
+    console.error("Add Favorite Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to add to favorites" });
+  }
+});
+
+// Remove Recipe from Favorites (Protected)
+app.delete('/api/favorites/:recipeId', verifyToken, async (req, res) => {
+  const { recipeId } = req.params;
+  try {
+    const favoritesCollection = getCollection('favorites');
+    const result = await favoritesCollection.deleteOne({
+      userId: req.user.id,
+      recipeId: new ObjectId(recipeId)
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Favorite recipe not found" });
+    }
+
+    return res.json({ success: true, message: "Removed from favorites" });
+
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to remove from favorites" });
+  }
+});
+// List Purchased Recipes for current user
+app.get('/api/payments/purchased', verifyToken, async (req, res) => {
+  try {
+    const paymentsCollection = getCollection('payments');
+    const purchases = await paymentsCollection.aggregate([
+      { 
+        $match: { 
+          userId: req.user.id, 
+          recipeId: { $ne: null } 
+        } 
+      },
+      {
+        $lookup: {
+          from: 'recipes',
+          localField: 'recipeId',
+          foreignField: '_id',
+          as: 'recipeDetails'
+        }
+      },
+      { $unwind: '$recipeDetails' },
+      {
+        $project: {
+          _id: 1,
+          paidAt: 1,
+          amount: 1,
+          transactionId: 1,
+          recipeId: '$recipeDetails._id',
+          recipeName: '$recipeDetails.recipeName',
+          recipeImage: '$recipeDetails.recipeImage',
+          category: '$recipeDetails.category',
+          cuisineType: '$recipeDetails.cuisineType',
+          difficultyLevel: '$recipeDetails.difficultyLevel',
+          preparationTime: '$recipeDetails.preparationTime',
+          authorName: '$recipeDetails.authorName'
+        }
+      }
+    ]).toArray();
+
+    return res.json({ success: true, data: purchases });
+
+  } catch (error) {
+    console.error("Get Purchased Recipes Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch purchased recipes" });
+  }
+});
 export default app;
