@@ -6,9 +6,10 @@ import jwt from 'jsonwebtoken';
 import { connectDB, getCollection } from './db.js';
 import { auth } from "./auth.js";
 import { verifyToken } from './jwtMiddleware.js';
+import Stripe from 'stripe';
 
 dotenv.config();
-
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -791,5 +792,203 @@ app.get('/api/payments/purchased', verifyToken, async (req, res) => {
     console.error("Get Purchased Recipes Error:", error);
     return res.status(500).json({ success: false, message: "Failed to fetch purchased recipes" });
   }
+});
+// CREATE STRIPE CHECKOUT SESSION
+app.post('/api/payments/create-checkout-session', verifyToken, async (req, res) => {
+  const { recipeId, paymentType } = req.body; // paymentType: 'recipe' or 'membership'
+
+  try {
+    let sessionConfig = {};
+
+    if (paymentType === 'recipe') {
+      if (!recipeId || !ObjectId.isValid(recipeId)) {
+        return res.status(400).json({ success: false, message: "Valid Recipe ID required for recipe purchase" });
+      }
+
+      const recipesCollection = getCollection('recipes');
+      const recipe = await recipesCollection.findOne({ _id: new ObjectId(recipeId) });
+
+      if (!recipe) {
+        return res.status(404).json({ success: false, message: "Recipe not found" });
+      }
+
+      sessionConfig = {
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: recipe.title || recipe.recipeName || 'Premium Recipe Access',
+                images: recipe.image ? [recipe.image] : [],
+                description: `Unlock full access to ${recipe.title || recipe.recipeName}`
+              },
+              unit_amount: 500 // $5.00 USD
+            },
+            quantity: 1
+          }
+        ],
+        mode: 'payment',
+        metadata: {
+          userId: req.user.id,
+          userEmail: req.user.email,
+          recipeId: recipeId.toString(),
+          paymentType: 'recipe'
+        },
+        success_url: `${process.env.CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.CLIENT_URL}/payment-cancel`
+      };
+
+    } else if (paymentType === 'membership') {
+      sessionConfig = {
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: 'RecipeHub Premium Membership',
+                description: 'Unlimited access to all premium recipes and features'
+              },
+              unit_amount: 1999 // $19.99 USD
+            },
+            quantity: 1
+          }
+        ],
+        mode: 'payment',
+        metadata: {
+          userId: req.user.id,
+          userEmail: req.user.email,
+          paymentType: 'membership'
+        },
+        success_url: `${process.env.CLIENT_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.CLIENT_URL}/payment-cancel`
+      };
+    } else {
+      return res.status(400).json({ success: false, message: "Invalid payment type" });
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionConfig);
+
+    return res.json({
+      success: true,
+      sessionId: session.id,
+      url: session.url
+    });
+
+  } catch (error) {
+    console.error("Stripe Checkout Session Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to initialize payment session" });
+  }
+});
+// STRIPE WEBHOOK HANDLER
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("Webhook Signature Verification Failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle successful checkout completion
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const { userId, userEmail, recipeId, paymentType } = session.metadata;
+
+    try {
+      const paymentsCollection = getCollection('payments');
+      const usersCollection = getCollection('users');
+
+      // Record transaction
+      await paymentsCollection.insertOne({
+        userId,
+        userEmail,
+        recipeId: recipeId ? new ObjectId(recipeId) : null,
+        paymentType,
+        transactionId: session.payment_intent,
+        amount: session.amount_total / 100, // Convert cents to dollars
+        currency: session.currency,
+        status: 'succeeded',
+        paidAt: new Date()
+      });
+
+      // Update user status if membership payment
+      if (paymentType === 'membership') {
+        await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { isPremium: true, updatedAt: new Date() } }
+        );
+      }
+
+      console.log(`Payment processed successfully for ${userEmail}`);
+    } catch (dbError) {
+      console.error("Failed to update database on Stripe Webhook:", dbError);
+      return res.status(500).send("Database Update Failed");
+    }
+  }
+
+  return res.json({ received: true });
+});
+// STRIPE WEBHOOK HANDLER
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("Webhook Signature Verification Failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle successful checkout completion
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const { userId, userEmail, recipeId, paymentType } = session.metadata;
+
+    try {
+      const paymentsCollection = getCollection('payments');
+      const usersCollection = getCollection('users');
+
+      // Record transaction
+      await paymentsCollection.insertOne({
+        userId,
+        userEmail,
+        recipeId: recipeId ? new ObjectId(recipeId) : null,
+        paymentType,
+        transactionId: session.payment_intent,
+        amount: session.amount_total / 100, // Convert cents to dollars
+        currency: session.currency,
+        status: 'succeeded',
+        paidAt: new Date()
+      });
+
+      // Update user status if membership payment
+      if (paymentType === 'membership') {
+        await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { isPremium: true, updatedAt: new Date() } }
+        );
+      }
+
+      console.log(`Payment processed successfully for ${userEmail}`);
+    } catch (dbError) {
+      console.error("Failed to update database on Stripe Webhook:", dbError);
+      return res.status(500).send("Database Update Failed");
+    }
+  }
+
+  return res.json({ received: true });
 });
 export default app;
