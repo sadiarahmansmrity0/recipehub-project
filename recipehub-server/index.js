@@ -1,11 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import { ObjectId } from 'mongodb';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import { connectDB, getCollection } from './db.js';
 import { auth } from "./auth.js";
-import { verifyToken } from './jwtMiddleware.js';
+import { verifyToken, getOptionalUser, verifyAdmin } from './jwtMiddleware.js'; // Added missing middleware
 import Stripe from 'stripe';
 
 dotenv.config();
@@ -27,6 +28,65 @@ app.use(cors({
   credentials: true
 }));
 
+// ==========================================
+// STRIPE WEBHOOK HANDLER (MUST BE BEFORE express.json())
+// ==========================================
+app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    console.error("Webhook Signature Verification Failed:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle successful checkout completion
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const { userId, userEmail, recipeId, paymentType } = session.metadata;
+
+    try {
+      const paymentsCollection = getCollection('payments');
+      const usersCollection = getCollection('users');
+
+      // Record transaction
+      await paymentsCollection.insertOne({
+        userId,
+        userEmail,
+        recipeId: recipeId ? new ObjectId(recipeId) : null,
+        paymentType,
+        transactionId: session.payment_intent,
+        amount: session.amount_total / 100, // Convert cents to dollars
+        currency: session.currency,
+        status: 'succeeded',
+        paidAt: new Date()
+      });
+
+      // Update user status if membership payment
+      if (paymentType === 'membership') {
+        await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          { $set: { isPremium: true, updatedAt: new Date() } }
+        );
+      }
+
+      console.log(`Payment processed successfully for ${userEmail}`);
+    } catch (dbError) {
+      console.error("Failed to update database on Stripe Webhook:", dbError);
+      return res.status(500).send("Database Update Failed");
+    }
+  }
+
+  return res.json({ received: true });
+});
+
+// JSON Body Parser & Cookie Parser
 app.use(express.json());
 app.use(cookieParser());
 
@@ -400,191 +460,7 @@ app.get('/api/auth/me', verifyToken, async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
-// CREATE RECIPE (Protected)
-app.post('/api/recipes', verifyToken, async (req, res) => {
-  try {
-    const { title, image, ingredients, instructions, category, cookingTime, isPremium } = req.body;
 
-    if (!title || !ingredients || !instructions || !category) {
-      return res.status(400).json({
-        success: false,
-        message: "Title, ingredients, instructions, and category are required"
-      });
-    }
-
-    const recipesCollection = getCollection('recipes');
-    
-    const newRecipe = {
-      title,
-      image: image || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?q=80&w=800",
-      ingredients: Array.isArray(ingredients) ? ingredients : ingredients.split(',').map(i => i.trim()),
-      instructions: Array.isArray(instructions) ? instructions : instructions.split('\n').map(i => i.trim()),
-      category,
-      cookingTime: parseInt(cookingTime) || 30,
-      isPremium: isPremium === true || isPremium === 'true',
-      authorEmail: req.user.email,
-      authorName: req.user.name || "Anonymous",
-      likes: [],
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    const result = await recipesCollection.insertOne(newRecipe);
-
-    return res.status(201).json({
-      success: true,
-      message: "Recipe created successfully",
-      recipe: { ...newRecipe, _id: result.insertedId }
-    });
-  } catch (error) {
-    console.error("Create recipe error:", error);
-    return res.status(500).json({ success: false, message: "Failed to create recipe" });
-  }
-});
-// GET ALL RECIPES (Public / Optional Auth for Filtering)
-app.get('/api/recipes', getOptionalUser, async (req, res) => {
-  try {
-    const { category, search, authorEmail } = req.query;
-    const query = {};
-
-    if (category) {
-      query.category = { $regex: category, $options: 'i' };
-    }
-
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { category: { $regex: search, $options: 'i' } }
-      ];
-    }
-
-    if (authorEmail) {
-      query.authorEmail = authorEmail;
-    }
-
-    const recipesCollection = getCollection('recipes');
-    const recipes = await recipesCollection.find(query).sort({ createdAt: -1 }).toArray();
-
-    return res.json({
-      success: true,
-      count: recipes.length,
-      recipes
-    });
-  } catch (error) {
-    console.error("Get recipes error:", error);
-    return res.status(500).json({ success: false, message: "Failed to fetch recipes" });
-  }
-});
-
-// GET SINGLE RECIPE BY ID (Public / Optional Auth for Premium Content check)
-app.get('/api/recipes/:id', getOptionalUser, async (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
-    }
-
-    const recipesCollection = getCollection('recipes');
-    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
-
-    if (!recipe) {
-      return res.status(404).json({ success: false, message: "Recipe not found" });
-    }
-
-    return res.json({
-      success: true,
-      recipe
-    });
-  } catch (error) {
-    console.error("Get single recipe error:", error);
-    return res.status(500).json({ success: false, message: "Failed to fetch recipe" });
-  }
-});
-// UPDATE RECIPE (Protected - Author or Admin)
-app.put('/api/recipes/:id', verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
-    }
-
-    const recipesCollection = getCollection('recipes');
-    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
-
-    if (!recipe) {
-      return res.status(404).json({ success: false, message: "Recipe not found" });
-    }
-
-    // Check ownership or admin status
-    if (recipe.authorEmail !== req.user.email && req.user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: "Unauthorized to update this recipe" });
-    }
-
-    const { title, image, ingredients, instructions, category, cookingTime, isPremium } = req.body;
-
-    const updateFields = {
-      updatedAt: new Date()
-    };
-
-    if (title) updateFields.title = title;
-    if (image) updateFields.image = image;
-    if (ingredients) updateFields.ingredients = Array.isArray(ingredients) ? ingredients : ingredients.split(',').map(i => i.trim());
-    if (instructions) updateFields.instructions = Array.isArray(instructions) ? instructions : instructions.split('\n').map(i => i.trim());
-    if (category) updateFields.category = category;
-    if (cookingTime) updateFields.cookingTime = parseInt(cookingTime);
-    if (isPremium !== undefined) updateFields.isPremium = isPremium === true || isPremium === 'true';
-
-    await recipesCollection.updateOne(
-      { _id: new ObjectId(id) },
-      { $set: updateFields }
-    );
-
-    const updatedRecipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
-
-    return res.json({
-      success: true,
-      message: "Recipe updated successfully",
-      recipe: updatedRecipe
-    });
-  } catch (error) {
-    console.error("Update recipe error:", error);
-    return res.status(500).json({ success: false, message: "Failed to update recipe" });
-  }
-});
-// DELETE RECIPE (Protected - Author or Admin)
-app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
-    }
-
-    const recipesCollection = getCollection('recipes');
-    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
-
-    if (!recipe) {
-      return res.status(404).json({ success: false, message: "Recipe not found" });
-    }
-
-    // Check ownership or admin status
-    if (recipe.authorEmail !== req.user.email && req.user.role !== 'admin') {
-      return res.status(403).json({ success: false, message: "Unauthorized to delete this recipe" });
-    }
-
-    await recipesCollection.deleteOne({ _id: new ObjectId(id) });
-
-    return res.json({
-      success: true,
-      message: "Recipe deleted successfully"
-    });
-  } catch (error) {
-    console.error("Delete recipe error:", error);
-    return res.status(500).json({ success: false, message: "Failed to delete recipe" });
-  }
-});
 // Get Logged-in User Stats Overview (Protected)
 app.get('/api/auth/stats', verifyToken, async (req, res) => {
   try {
@@ -653,7 +529,254 @@ app.put('/api/auth/profile', verifyToken, async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to update profile" });
   }
 });
-// List Favorite Recipes (Protected, joins with recipes collection)
+
+// ==========================================
+// 5. RECIPE ENDPOINTS
+// ==========================================
+
+// CREATE RECIPE (Protected)
+app.post('/api/recipes', verifyToken, async (req, res) => {
+  try {
+    const { title, image, ingredients, instructions, category, cookingTime, isPremium } = req.body;
+
+    if (!title || !ingredients || !instructions || !category) {
+      return res.status(400).json({
+        success: false,
+        message: "Title, ingredients, instructions, and category are required"
+      });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    
+    const newRecipe = {
+      title,
+      image: image || "https://images.unsplash.com/photo-1495521821757-a1efb6729352?q=80&w=800",
+      ingredients: Array.isArray(ingredients) ? ingredients : ingredients.split(',').map(i => i.trim()),
+      instructions: Array.isArray(instructions) ? instructions : instructions.split('\n').map(i => i.trim()),
+      category,
+      cookingTime: parseInt(cookingTime) || 30,
+      isPremium: isPremium === true || isPremium === 'true',
+      authorEmail: req.user.email,
+      authorName: req.user.name || "Anonymous",
+      likes: [],
+      likesCount: 0,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const result = await recipesCollection.insertOne(newRecipe);
+
+    return res.status(201).json({
+      success: true,
+      message: "Recipe created successfully",
+      recipe: { ...newRecipe, _id: result.insertedId }
+    });
+  } catch (error) {
+    console.error("Create recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to create recipe" });
+  }
+});
+
+// GET ALL RECIPES (Public / Optional Auth for Filtering)
+app.get('/api/recipes', getOptionalUser, async (req, res) => {
+  try {
+    const { category, search, authorEmail } = req.query;
+    const query = {};
+
+    if (category) {
+      query.category = { $regex: category, $options: 'i' };
+    }
+
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { category: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (authorEmail) {
+      query.authorEmail = authorEmail;
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipes = await recipesCollection.find(query).sort({ createdAt: -1 }).toArray();
+
+    return res.json({
+      success: true,
+      count: recipes.length,
+      recipes
+    });
+  } catch (error) {
+    console.error("Get recipes error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch recipes" });
+  }
+});
+
+// GET SINGLE RECIPE BY ID (Public / Optional Auth for Premium Content check)
+app.get('/api/recipes/:id', getOptionalUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    return res.json({
+      success: true,
+      recipe
+    });
+  } catch (error) {
+    console.error("Get single recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch recipe" });
+  }
+});
+
+// UPDATE RECIPE (Protected - Author or Admin)
+app.put('/api/recipes/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    // Check ownership or admin status
+    if (recipe.authorEmail !== req.user.email && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: "Unauthorized to update this recipe" });
+    }
+
+    const { title, image, ingredients, instructions, category, cookingTime, isPremium } = req.body;
+
+    const updateFields = {
+      updatedAt: new Date()
+    };
+
+    if (title) updateFields.title = title;
+    if (image) updateFields.image = image;
+    if (ingredients) updateFields.ingredients = Array.isArray(ingredients) ? ingredients : ingredients.split(',').map(i => i.trim());
+    if (instructions) updateFields.instructions = Array.isArray(instructions) ? instructions : instructions.split('\n').map(i => i.trim());
+    if (category) updateFields.category = category;
+    if (cookingTime) updateFields.cookingTime = parseInt(cookingTime);
+    if (isPremium !== undefined) updateFields.isPremium = isPremium === true || isPremium === 'true';
+
+    await recipesCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateFields }
+    );
+
+    const updatedRecipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    return res.json({
+      success: true,
+      message: "Recipe updated successfully",
+      recipe: updatedRecipe
+    });
+  } catch (error) {
+    console.error("Update recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update recipe" });
+  }
+});
+
+// DELETE RECIPE (Protected - Author or Admin)
+app.delete('/api/recipes/:id', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    // Check ownership or admin status
+    if (recipe.authorEmail !== req.user.email && req.user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: "Unauthorized to delete this recipe" });
+    }
+
+    await recipesCollection.deleteOne({ _id: new ObjectId(id) });
+
+    return res.json({
+      success: true,
+      message: "Recipe deleted successfully"
+    });
+  } catch (error) {
+    console.error("Delete recipe error:", error);
+    return res.status(500).json({ success: false, message: "Failed to delete recipe" });
+  }
+});
+
+// TOGGLE LIKE / UNLIKE RECIPE (Protected)
+app.post('/api/recipes/:id/like', verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid recipe ID" });
+    }
+
+    const recipesCollection = getCollection('recipes');
+    const recipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!recipe) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    const likesArray = recipe.likes || [];
+    const hasLiked = likesArray.includes(req.user.email);
+
+    let updateDoc;
+    if (hasLiked) {
+      // Remove Like
+      updateDoc = {
+        $pull: { likes: req.user.email },
+        $inc: { likesCount: -1 }
+      };
+    } else {
+      // Add Like
+      updateDoc = {
+        $addToSet: { likes: req.user.email },
+        $inc: { likesCount: 1 }
+      };
+    }
+
+    await recipesCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
+    const updatedRecipe = await recipesCollection.findOne({ _id: new ObjectId(id) });
+
+    return res.json({
+      success: true,
+      liked: !hasLiked,
+      likesCount: updatedRecipe.likesCount || 0
+    });
+
+  } catch (error) {
+    console.error("Like Recipe Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update like status" });
+  }
+});
+
+// ==========================================
+// 6. FAVORITES ENDPOINTS
+// ==========================================
+
+// List Favorite Recipes (Protected)
 app.get('/api/favorites', verifyToken, async (req, res) => {
   try {
     const favoritesCollection = getCollection('favorites');
@@ -673,12 +796,10 @@ app.get('/api/favorites', verifyToken, async (req, res) => {
           _id: 1,
           addedAt: 1,
           recipeId: '$recipeDetails._id',
-          recipeName: '$recipeDetails.recipeName',
-          recipeImage: '$recipeDetails.recipeImage',
+          recipeName: '$recipeDetails.title',
+          recipeImage: '$recipeDetails.image',
           category: '$recipeDetails.category',
-          cuisineType: '$recipeDetails.cuisineType',
-          difficultyLevel: '$recipeDetails.difficultyLevel',
-          preparationTime: '$recipeDetails.preparationTime',
+          cookingTime: '$recipeDetails.cookingTime',
           authorName: '$recipeDetails.authorName'
         }
       }
@@ -748,6 +869,11 @@ app.delete('/api/favorites/:recipeId', verifyToken, async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to remove from favorites" });
   }
 });
+
+// ==========================================
+// 7. PAYMENTS & TRANSACTIONS ENDPOINTS
+// ==========================================
+
 // List Purchased Recipes for current user
 app.get('/api/payments/purchased', verifyToken, async (req, res) => {
   try {
@@ -775,12 +901,10 @@ app.get('/api/payments/purchased', verifyToken, async (req, res) => {
           amount: 1,
           transactionId: 1,
           recipeId: '$recipeDetails._id',
-          recipeName: '$recipeDetails.recipeName',
-          recipeImage: '$recipeDetails.recipeImage',
+          recipeName: '$recipeDetails.title',
+          recipeImage: '$recipeDetails.image',
           category: '$recipeDetails.category',
-          cuisineType: '$recipeDetails.cuisineType',
-          difficultyLevel: '$recipeDetails.difficultyLevel',
-          preparationTime: '$recipeDetails.preparationTime',
+          cookingTime: '$recipeDetails.cookingTime',
           authorName: '$recipeDetails.authorName'
         }
       }
@@ -793,6 +917,7 @@ app.get('/api/payments/purchased', verifyToken, async (req, res) => {
     return res.status(500).json({ success: false, message: "Failed to fetch purchased recipes" });
   }
 });
+
 // CREATE STRIPE CHECKOUT SESSION
 app.post('/api/payments/create-checkout-session', verifyToken, async (req, res) => {
   const { recipeId, paymentType } = req.body; // paymentType: 'recipe' or 'membership'
@@ -819,9 +944,9 @@ app.post('/api/payments/create-checkout-session', verifyToken, async (req, res) 
             price_data: {
               currency: 'usd',
               product_data: {
-                name: recipe.title || recipe.recipeName || 'Premium Recipe Access',
+                name: recipe.title || 'Premium Recipe Access',
                 images: recipe.image ? [recipe.image] : [],
-                description: `Unlock full access to ${recipe.title || recipe.recipeName}`
+                description: `Unlock full access to ${recipe.title}`
               },
               unit_amount: 500 // $5.00 USD
             },
@@ -881,114 +1006,77 @@ app.post('/api/payments/create-checkout-session', verifyToken, async (req, res) 
     return res.status(500).json({ success: false, message: "Failed to initialize payment session" });
   }
 });
-// STRIPE WEBHOOK HANDLER
-app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
 
+// ==========================================
+// 8. ADMIN MANAGEMENT ENDPOINTS
+// ==========================================
+
+// ADMIN: GET ALL USERS (Admin Protected)
+app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.error("Webhook Signature Verification Failed:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    const usersCollection = getCollection('users');
+    const users = await usersCollection.find({}).sort({ createdAt: -1 }).toArray();
+
+    return res.json({
+      success: true,
+      data: users
+    });
+  } catch (error) {
+    console.error("Fetch Admin Users Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch users" });
   }
-
-  // Handle successful checkout completion
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const { userId, userEmail, recipeId, paymentType } = session.metadata;
-
-    try {
-      const paymentsCollection = getCollection('payments');
-      const usersCollection = getCollection('users');
-
-      // Record transaction
-      await paymentsCollection.insertOne({
-        userId,
-        userEmail,
-        recipeId: recipeId ? new ObjectId(recipeId) : null,
-        paymentType,
-        transactionId: session.payment_intent,
-        amount: session.amount_total / 100, // Convert cents to dollars
-        currency: session.currency,
-        status: 'succeeded',
-        paidAt: new Date()
-      });
-
-      // Update user status if membership payment
-      if (paymentType === 'membership') {
-        await usersCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { isPremium: true, updatedAt: new Date() } }
-        );
-      }
-
-      console.log(`Payment processed successfully for ${userEmail}`);
-    } catch (dbError) {
-      console.error("Failed to update database on Stripe Webhook:", dbError);
-      return res.status(500).send("Database Update Failed");
-    }
-  }
-
-  return res.json({ received: true });
 });
-// STRIPE WEBHOOK HANDLER
-app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
 
+// ADMIN: BLOCK / UNBLOCK USER (Admin Protected)
+app.patch('/api/admin/users/:id/block', verifyToken, verifyAdmin, async (req, res) => {
   try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    console.error("Webhook Signature Verification Failed:", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
+    const { id } = req.params;
+    const { isBlocked } = req.body;
 
-  // Handle successful checkout completion
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const { userId, userEmail, recipeId, paymentType } = session.metadata;
-
-    try {
-      const paymentsCollection = getCollection('payments');
-      const usersCollection = getCollection('users');
-
-      // Record transaction
-      await paymentsCollection.insertOne({
-        userId,
-        userEmail,
-        recipeId: recipeId ? new ObjectId(recipeId) : null,
-        paymentType,
-        transactionId: session.payment_intent,
-        amount: session.amount_total / 100, // Convert cents to dollars
-        currency: session.currency,
-        status: 'succeeded',
-        paidAt: new Date()
-      });
-
-      // Update user status if membership payment
-      if (paymentType === 'membership') {
-        await usersCollection.updateOne(
-          { _id: new ObjectId(userId) },
-          { $set: { isPremium: true, updatedAt: new Date() } }
-        );
-      }
-
-      console.log(`Payment processed successfully for ${userEmail}`);
-    } catch (dbError) {
-      console.error("Failed to update database on Stripe Webhook:", dbError);
-      return res.status(500).send("Database Update Failed");
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ success: false, message: "Invalid user ID" });
     }
-  }
 
-  return res.json({ received: true });
+    const usersCollection = getCollection('users');
+    await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { isBlocked: !!isBlocked, updatedAt: new Date() } }
+    );
+
+    return res.json({
+      success: true,
+      message: `User status updated to ${isBlocked ? 'Blocked' : 'Active'}`
+    });
+  } catch (error) {
+    console.error("Block User Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update user block status" });
+  }
 });
+
+// ADMIN: CHANGE USER ROLE (Admin Protected)
+app.patch('/api/admin/users/:id/role', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ success: false, message: "Invalid role specified" });
+    }
+
+    const usersCollection = getCollection('users');
+    await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { role, updatedAt: new Date() } }
+    );
+
+    return res.json({
+      success: true,
+      message: `User role updated to ${role}`
+    });
+  } catch (error) {
+    console.error("Change Role Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to update user role" });
+  }
+});
+
 export default app;
