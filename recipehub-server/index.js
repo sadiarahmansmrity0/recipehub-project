@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import jwt from 'jsonwebtoken';
 import { connectDB, getCollection } from './db.js';
+import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 import { verifyToken, getOptionalUser, verifyAdmin } from './jwtMiddleware.js'; // Added missing middleware
 import Stripe from 'stripe';
@@ -27,6 +28,25 @@ app.use(cors({
   origin: allowedOrigins,
   credentials: true
 }));
+
+// Mount Better Auth handler before the JSON parser.
+app.all("/api/auth/*", (req, res, next) => {
+  const customPaths = [
+    '/api/auth/register',
+    '/api/auth/login',
+    '/api/auth/google-callback',
+    '/api/auth/logout',
+    '/api/auth/me',
+    '/api/auth/stats',
+    '/api/auth/profile'
+  ];
+
+  if (customPaths.includes(req.path)) {
+    return next();
+  }
+
+  return toNodeHandler(auth)(req, res, next);
+});
 
 // ==========================================
 // STRIPE WEBHOOK HANDLER (MUST BE BEFORE express.json())
