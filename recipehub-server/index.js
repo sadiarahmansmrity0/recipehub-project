@@ -1074,6 +1074,49 @@ app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+app.put('/api/admin/users/:id/block', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const usersCollection = getCollection('users');
+    const userToBlock = await usersCollection.findOne({ _id: new ObjectId(id) });
+
+    if (userToBlock?.email === req.user.email) {
+      return res.status(400).json({ success: false, message: "You cannot block yourself!" });
+    }
+
+    const result = await usersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { isBlocked: true, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    return res.json({ success: true, message: "User successfully blocked" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to block user" });
+  }
+});
+
+app.put('/api/admin/users/:id/unblock', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const usersCollection = getCollection('users');
+    const result = await usersCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { isBlocked: false, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    return res.json({ success: true, message: "User successfully unblocked" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to unblock user" });
+  }
+});
+
 // ADMIN: BLOCK / UNBLOCK USER (Admin Protected)
 app.patch('/api/admin/users/:id/block', verifyToken, verifyAdmin, async (req, res) => {
   try {
