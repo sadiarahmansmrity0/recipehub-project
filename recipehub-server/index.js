@@ -1169,4 +1169,46 @@ app.patch('/api/admin/users/:id/role', verifyToken, verifyAdmin, async (req, res
   }
 });
 
+app.get('/api/admin/recipes', verifyAdmin, async (req, res) => {
+  try {
+    const recipes = await getCollection('recipes').find().toArray();
+    return res.json({ success: true, data: recipes });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to fetch recipes" });
+  }
+});
+
+app.put('/api/admin/recipes/:id/feature', verifyAdmin, async (req, res) => {
+  try {
+    const result = await getCollection('recipes').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { isFeatured: !!req.body.isFeatured, updatedAt: new Date() } }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    return res.json({ success: true, message: req.body.isFeatured ? "Recipe added to featured section" : "Recipe removed from featured section" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to feature recipe" });
+  }
+});
+
+app.delete('/api/admin/recipes/:id', verifyAdmin, async (req, res) => {
+  try {
+    const recipeId = new ObjectId(req.params.id);
+    const result = await getCollection('recipes').deleteOne({ _id: recipeId });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Recipe not found" });
+    }
+
+    await getCollection('reports').deleteMany({ recipeId });
+    return res.json({ success: true, message: "Recipe successfully deleted" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to delete recipe" });
+  }
+});
+
 export default app;
