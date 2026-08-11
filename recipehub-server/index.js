@@ -1211,4 +1211,45 @@ app.delete('/api/admin/recipes/:id', verifyAdmin, async (req, res) => {
   }
 });
 
+app.get('/api/admin/reports', verifyAdmin, async (req, res) => {
+  try {
+    const reports = await getCollection('reports').aggregate([
+      { $lookup: { from: 'recipes', localField: 'recipeId', foreignField: '_id', as: 'recipeDetails' } },
+      { $unwind: '$recipeDetails' },
+      {
+        $project: {
+          _id: 1, recipeId: 1, reporterEmail: 1, reason: 1, status: 1, createdAt: 1,
+          recipeName: '$recipeDetails.recipeName',
+          recipeAuthor: '$recipeDetails.authorName',
+          recipeAuthorEmail: '$recipeDetails.authorEmail'
+        }
+      }
+    ]).toArray();
+    return res.json({ success: true, data: reports });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to fetch reports" });
+  }
+});
+
+app.put('/api/admin/reports/:id/dismiss', verifyAdmin, async (req, res) => {
+  try {
+    const result = await getCollection('reports').deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: "Report not found" });
+    }
+    return res.json({ success: true, message: "Report successfully dismissed" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to dismiss report" });
+  }
+});
+
+app.get('/api/admin/transactions', verifyAdmin, async (req, res) => {
+  try {
+    const transactions = await getCollection('payments').find().sort({ paidAt: -1 }).toArray();
+    return res.json({ success: true, data: transactions });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Failed to fetch transactions" });
+  }
+});
+
 export default app;
