@@ -1032,6 +1032,33 @@ app.post('/api/payments/create-checkout-session', verifyToken, async (req, res) 
 // ==========================================
 
 // ADMIN: GET ALL USERS (Admin Protected)
+// Get Admin Overview Stats (Protected)
+app.get('/api/admin/stats', verifyAdmin, async (req, res) => {
+  try {
+    const usersCollection = getCollection('users');
+    const recipesCollection = getCollection('recipes');
+    const reportsCollection = getCollection('reports');
+
+    const totalUsers = await usersCollection.countDocuments();
+    const totalRecipes = await recipesCollection.countDocuments();
+    const totalPremiumMembers = await usersCollection.countDocuments({ isPremium: true });
+    const totalReports = await reportsCollection.countDocuments();
+
+    return res.json({
+      success: true,
+      data: {
+        totalUsers,
+        totalRecipes,
+        totalPremiumMembers,
+        totalReports
+      }
+    });
+  } catch (error) {
+    console.error("Admin Stats Error:", error);
+    return res.status(500).json({ success: false, message: "Failed to fetch admin stats" });
+  }
+});
+
 app.get('/api/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const usersCollection = getCollection('users');
