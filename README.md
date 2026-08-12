@@ -20,10 +20,11 @@ The project was developed as part of the **Web Programming Lab** course to demon
 
 ## 🌐 Live Demo
 The application will be deployed after development is completed.
-Frontend:
+
+Frontend:https://recipehub-client-delta.vercel.app
 
 
-Backend API:
+Backend API:https://recipehub-server-dr3a.onrender.com
 
 
 ---
