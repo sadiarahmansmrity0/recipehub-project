@@ -1,82 +1,86 @@
-# RecipeHub
+﻿# RecipeHub
 
-RecipeHub is a full-stack recipe sharing platform built as a CSE 300 Web Programming project at Metropolitan University. Users can browse recipes, create and manage recipes, like and favorite recipes, submit reports, and rate and review recipes. Premium recipes are available through Stripe Checkout, and administrators have dedicated management dashboards.
+RecipeHub is a full-stack recipe sharing application developed for the CSE 300 Web Programming course at Metropolitan University. It lets visitors discover recipes, members publish and review recipes, premium members unlock premium content, and administrators manage platform activity.
 
 ## Purpose
 
-The project demonstrates a web application with a Next.js and React frontend, an Express.js backend, MongoDB persistence, authentication, role-based access, payments, and administrative functions.
+The project demonstrates a complete web application using a React and Next.js interface, an Express API, MongoDB persistence, authentication and authorization, image hosting, payment processing, automated tests, and project documentation.
 
-## Main features
+## Features
 
-- Public home page and recipe browsing with search, filters, pagination, featured and popular recipes.
-- Registration, login, Google sign-in, profile updates, and protected user pages.
-- Recipe creation, editing, deletion, likes, favorites, and reports.
-- Ratings from 1–5 and written reviews. Each authenticated user can review a recipe once and edit their own review. Average rating and review count are displayed; public review responses omit reviewer email/user ID.
-- Premium recipe purchase and premium membership flows using Stripe Checkout.
-- User and admin dashboards for profile, recipes, favorites, purchased recipes, users, featured recipes, reports, and transactions.
-- Dark/light theme and responsive styling.
+- Browse, search, and filter recipes with pagination, featured and popular collections, and detailed recipe pages.
+- Register, sign in with email/password or Google, manage a profile, and use authenticated dashboards.
+- Create, edit, and delete recipes; like recipes; save and remove favorites; and submit reports.
+- Rate a recipe from 1 to 5 stars and leave a written review. Each authenticated user has one review per recipe and can edit it. Public review responses omit reviewer email and ID.
+- Unlock premium recipes or purchase premium membership through Stripe Checkout.
+- Use administrative pages for platform statistics, user management, recipe management, featured recipes, reports, and transactions.
+- Upload recipe images through ImgBB; use responsive layouts and light/dark themes.
 
-## Roles
+## User roles
 
-- **Visitor:** browse public recipes and reviews; sign in to use protected features.
-- **Registered member:** manage a profile, publish recipes, like, favorite, report, and review recipes. Standard members are limited to two submitted recipes.
-- **Premium member:** has premium account access and the higher recipe submission allowance; can buy access to premium recipes.
-- **Administrator:** manage users and recipes, feature recipes, review reports, and view transactions.
+- **Visitor:** browse recipes and public reviews; sign in to use protected actions.
+- **Member:** manage a profile, publish recipes, and use likes, favorites, reports, and reviews.
+- **Premium member:** access premium account features and content according to payment or ownership status.
+- **Administrator:** access protected user, recipe, report, feature, and transaction management functions.
 
-## Technology stack and architecture
+## Technology and architecture
 
 - **Frontend:** Next.js 16, React 19, Tailwind CSS 4, Framer Motion, Lucide React.
-- **Backend:** Node.js, Express 4, native MongoDB Node.js driver, Better Auth, custom JWT middleware, Stripe.
-- **Image hosting:** ImgBB.
+- **Backend:** Node.js, Express 4, native MongoDB Node.js driver, Better Auth, custom JWT middleware, and Stripe SDK.
+- **External services:** Stripe for payments and ImgBB for image hosting.
 
-The Next.js client calls the Express API. Better Auth supports the authentication integration, including Google sign-in. Custom registration/login API handlers also issue JWTs in HTTPOnly cookies. Application API authorization is performed by custom JWT middleware; admin routes additionally check the user’s administrator role.
+The Next.js application calls the Express API. Better Auth handles its authentication integration, including Google sign-in. The application’s custom registration and login handlers issue JWTs; custom JWT middleware authenticates API requests, and admin middleware checks administrator roles. These mechanisms have separate responsibilities. The backend supports HTTPOnly JWT cookies as well as the bearer-token flow used by the client.
 
-The MongoDB application uses the core collections `users`, `recipes`, `favorites`, `payments`, `reports`, and `sessions`. Reviews are embedded in recipe documents rather than stored in a separate collection. This backend uses the native MongoDB driver; it is not Mongoose-based.
+The backend uses the native MongoDB driver; it does not use Mongoose. The main collections are `users`, `recipes`, `favorites`, `payments`, `reports`, and `sessions`. Ratings and reviews are embedded in each recipe document; they are not stored in a separate reviews collection.
 
-![RecipeHub system architecture](documentation/02-System-Architecture/RecipeHub_Architecture.png)
-
-![RecipeHub MongoDB ER diagram](documentation/01-ER-Diagram/RecipeHub_MongoDB_ERD.png)
+See the [ER diagram](documentation/01-ER-Diagram/RecipeHub_MongoDB_ERD.png) and [system architecture diagram](documentation/02-System-Architecture/RecipeHub_Architecture.png).
 
 ## Ratings and reviews
 
-Signed-in users submit a whole-number star rating from 1 to 5 and a written comment. A user has one review per recipe and can update it later. The recipe detail page displays review content, average rating, and total review count. Public responses omit reviewer email and ID. Signed-out visitors see a sign-in prompt.
+The recipe detail page displays review text, an average rating, and the total review count. Signed-in users can submit or edit a whole-number rating from 1 to 5 with a comment. Signed-out visitors see a sign-in prompt. Review responses exclude reviewer email addresses and IDs.
 
-## Premium and administration
+## Premium payments and administration
 
-Stripe Checkout supports premium membership and one-time purchase of premium recipes. Recipe content remains locked until a purchase or another authorized access condition is met. Automated test runs described in the release notes did not use real Stripe transactions.
+Stripe Checkout supports one-time premium recipe purchases and premium membership. The server verifies payment sessions and processes Stripe webhooks; it records successful payments and updates membership status. Automated tests validate request boundaries without creating checkout sessions or making real transactions.
 
-Admin dashboard and API features include statistics, user management and blocking, recipe management, featured recipes, report handling, and transaction viewing. Admin operations are protected by server-side authorization checks.
+Admin-only API middleware protects user, recipe, report, feature, and transaction operations. The server also retains user role management and account blocking controls.
 
-## Screenshots
+## Screenshots and supporting documents
 
-The following are existing desktop screenshots; they are documentation captures and do not verify current deployment availability.
+Screenshots are existing documentation captures; they do not establish that the current deployment is live.
 
-![RecipeHub home page](documentation/03-Application-Screenshots/01-Home.png)
+- [Home](documentation/03-Application-Screenshots/01-Home.png)
+- [Recipe browsing](documentation/03-Application-Screenshots/02-Recipe-Browsing.png)
+- [Recipe details and reviews](documentation/03-Application-Screenshots/03.1-Recipe-Details-Reviews.png)
+- [Login](documentation/03-Application-Screenshots/04.0-Login.png) and [registration](documentation/03-Application-Screenshots/04.1-Register.png)
+- [User recipe dashboard](documentation/03-Application-Screenshots/05-Add-Recipe-User-Dashboard.png)
+- [Admin dashboard](documentation/03-Application-Screenshots/06-Admin-Dashboard.png)
+- [Favorites](documentation/03-Application-Screenshots/07-Favourites-page.png)
+- [Purchased recipe](documentation/03-Application-Screenshots/08-Purchased-recipe.png)
+- [Admin transactions](documentation/03-Application-Screenshots/09-Admin-transaction-page.png)
 
-![Recipe browsing](documentation/03-Application-Screenshots/02-Recipe-Browsing.png)
+See the [documentation index](documentation/README.md), the [heuristic usability evaluation](documentation/04-Usability-Evaluation/Usability-Evaluation.md), the [participant evaluation template](documentation/04-Usability-Evaluation/Participant-Testing-Template.md), and [release notes](documentation/05-Release-Notes/README.md).
 
-![Recipe detail and reviews](documentation/03-Application-Screenshots/03.1-Recipe-Details-Reviews.png)
-
-See the [documentation index](documentation/README.md) for the complete screenshot list, diagrams, usability evaluation, and release notes.
-
-## Project structure
+## Repository structure
 
 ```text
 recipehub-project/
 ├── README.md
-├── docs/                         # Existing project planning and team notes
-├── documentation/                # Diagrams, screenshots, and submission material
-├── recipehub-client/             # Next.js client
-└── recipehub-server/             # Express API
+├── docs/                         # Existing project notes
+├── documentation/                # Diagrams, screenshots, evaluation, release notes
+├── recipehub-client/             # Next.js application and UI tests
+└── recipehub-server/             # Express API, MongoDB access, and API tests
 ```
 
-This folder is a combined Git repository. Its frontend and backend directories are not separate nested Git repositories.
+The client and server have separate package files and lockfiles within this combined Git repository.
 
-## Local setup
+## Requirements
 
-Use Node.js 20.9 or later for the Next.js 16 client. The client and server have separate `package.json` files. No `.env.example` file is provided. Create the environment files locally and keep them out of Git.
+Use Node.js 20.9 or later (required by the Next.js 16 client) and npm. Install the frontend and backend dependencies separately with `npm ci` from their respective directories.
 
-### Client environment
+## Environment configuration
+
+No example environment files are included. Create local environment files and never commit populated secrets. The names below are read by this repository’s source code.
 
 Create `recipehub-client/.env.local`:
 
@@ -85,9 +89,7 @@ NEXT_PUBLIC_BASE_URL=http://localhost:5000
 NEXT_PUBLIC_IMGBB_API_KEY=
 ```
 
-The ImgBB variable is used by client upload code and is browser-visible because of the `NEXT_PUBLIC_` prefix. Do not put private server credentials in client environment variables.
-
-### Server environment
+`NEXT_PUBLIC_BASE_URL` is the Express API origin. `NEXT_PUBLIC_IMGBB_API_KEY` is used by browser-side image upload code and is public to the browser by design; use a key intended for client-side use and configure provider restrictions where available.
 
 Create `recipehub-server/.env`:
 
@@ -103,9 +105,9 @@ STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
 ```
 
-`MONGO_DB_URI`, `DB_NAME`, and `JWT_SECRET` are required for the API and protected routes. Google credentials enable Google sign-in. Stripe credentials are required for checkout and webhook verification. Set callback and allowed-origin values to match your own local/deployed URLs. Never commit populated environment files.
+`MONGO_DB_URI` and `DB_NAME` select the MongoDB connection and database. `JWT_SECRET` signs application JWTs. `CLIENT_URL` is used for allowed origins, redirects, and Stripe return URLs. Google credentials enable the Better Auth Google provider. Stripe credentials support Checkout and webhook signature verification. Leave credential values private. Test runs generate synthetic secrets and an isolated MongoMemoryServer URI automatically; do not point tests at a production database.
 
-### Install and run the backend
+## Run the backend
 
 ```powershell
 cd recipehub-server
@@ -113,11 +115,11 @@ npm ci
 npm run dev
 ```
 
-The server defaults to port `5000`. `npm start` runs the production-style Node entry point.
+The development server listens on port 5000 by default. `npm start` runs the production entry point. The Express application is exported from `app.js`; database connection and HTTP startup are in `index.js`.
 
-### Install and run the frontend
+## Run the frontend
 
-In a second terminal:
+In another terminal:
 
 ```powershell
 cd recipehub-client
@@ -125,39 +127,54 @@ npm ci
 npm run dev
 ```
 
-The Next.js client defaults to `http://localhost:3000`. Client scripts also include `npm run lint` and `npm run build`.
+The Next.js development server defaults to `http://localhost:3000`.
 
-## Automated testing
+## Automated tests and verification
 
-The automated test suites and results in the release notes belong to the separately maintained `recipehub-complete` component repositories. This combined `recipehub-project` checkout does **not** currently contain the Jest test files/configurations or `test` scripts, so `npm test` is not available here. The API test harness uses an isolated in-memory database in the `recipehub-complete` server repository; the client suite mocks API responses in its corresponding repository. Results were 16 backend and 5 frontend tests passed, with no real Stripe transactions. See [prepared release notes](documentation/05-Release-Notes/README.md) for the recorded limitations.
+Run the backend API tests:
+
+```powershell
+cd recipehub-server
+npm test
+```
+
+The backend suite uses Jest, Supertest, and MongoMemoryServer. It sets a generated expected URI before importing the database module and rejects URI mismatches and non-test database names. Synthetic users and test-only JWT secrets are used. The suite does not perform real Stripe transactions or external OAuth flows.
+
+Run the frontend component tests:
+
+```powershell
+cd recipehub-client
+npm test
+```
+
+The frontend suite uses Jest, jsdom, and React Testing Library to exercise the recipe detail and Ratings & Reviews user interactions with mocked API responses.
+
+Latest verification for this repository: **20 backend tests passed; 5 frontend tests passed**. The production frontend build passed. Focused lint on the recipe detail page and its test reported 0 errors and 2 warnings. Full client lint reports 17 errors and 37 warnings across the wider existing project; those unrelated findings were not changed as part of this work. See the [release notes](documentation/05-Release-Notes/README.md) for test scope and limitations.
+
+Other available commands are `npm run build` and `npm run lint` in `recipehub-client`.
 
 ## Deployment and repository links
 
-These URLs are listed in the existing project documentation/configuration. Their current availability and deployed commit were not checked during this documentation update.
+The source documentation/configuration lists these service URLs. Their present availability and deployed commit were not checked during this final repository preparation.
 
 - Frontend: [recipehub-client-delta.vercel.app](https://recipehub-client-delta.vercel.app)
 - Backend API: [recipehub-server-dr3a.onrender.com](https://recipehub-server-dr3a.onrender.com)
-- Project repository: [sadiarahmansmrity0/recipehub-project](https://github.com/sadiarahmansmrity0/recipehub-project)
+- GitHub repository: [sadiarahmansmrity0/recipehub-project](https://github.com/sadiarahmansmrity0/recipehub-project)
 
-
-The client package version is `0.1.0`; the server package version is `1.0.0`. No repository tag convention was present in local history, so release notes are prepared but no GitHub release was published.
-
-## Usability evaluation
-
-The [usability evaluation](documentation/04-Usability-Evaluation/Usability-Evaluation.md) is a heuristic/code-based review of the implementation and existing screenshots. It is not a participant study and contains no fabricated survey results. A separate [participant testing template](documentation/04-Usability-Evaluation/Participant-Testing-Template.md) is available for future sessions.
+Package versions currently declare client `0.1.0` and server `1.0.0`. Release notes are prepared for these component versions. No release publication is claimed.
 
 ## Future improvements
 
-- Run documented participant sessions and collect actual observations.
-- Validate accessibility and responsive behavior with keyboards, assistive technology, and mobile/tablet viewports.
-- Resolve the existing full-project lint findings and expand non-payment integration coverage.
-- Verify the current deployments and document operational monitoring.
+- Conduct participant usability sessions and document actual observations.
+- Validate accessibility and responsive behavior with keyboard, assistive technology, and mobile/tablet testing.
+- Resolve existing full-project lint findings and extend test coverage for external-service success flows using safe mocks.
+- Confirm deployment availability and deployed revisions during release publication.
 
 ## Team
 
 **Team DevDynasty**
 
-- **Sadia Rahman Smrity:** backend development, authentication, database design, payment integration, deployment.
-- **Tabassum Zaman:** frontend development, UI components, responsive design, dashboard pages.
+- **Sadia Rahman Smrity:** backend development, authentication, database design, payment integration, and deployment.
+- **Tabassum Zaman:** frontend development, UI components, responsive design, and dashboard pages.
 
 Developed for the CSE 300 Web Programming course at Metropolitan University, Sylhet.

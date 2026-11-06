@@ -1,31 +1,23 @@
-# RecipeHub Documentation
+﻿# RecipeHub project documentation
 
-This directory contains the project diagrams, application screenshots, and usability evaluation material. The product overview and setup guide are in the [project README](../README.md).
+This directory contains the ER diagram, system architecture diagram, application screenshots, usability evaluation, participant evaluation template, and release notes for this repository. The setup guide and complete feature overview are in the [project README](../README.md).
 
-## 1. Entity Relationship Diagram
+## Database design
 
-The MongoDB ER diagram illustrates the six primary collections used by RecipeHub, their reference fields, and their relationships.
+The [MongoDB ER diagram](01-ER-Diagram/RecipeHub_MongoDB_ERD.png) summarizes the primary `users`, `recipes`, `favorites`, `payments`, `reports`, and `sessions` collections. Reviews are embedded in recipe documents rather than stored in a separate collection. The [SVG diagram](01-ER-Diagram/RecipeHub_MongoDB_ERD.svg) is available for zooming.
 
-Reviews are embedded within recipe documents rather than maintained as a separate collection. The diagram also represents the relationships between users, recipes, favorites, payments, reports, and sessions.
+## System architecture
 
-![RecipeHub MongoDB ER diagram](01-ER-Diagram/RecipeHub_MongoDB_ERD.png) ([SVG version](01-ER-Diagram/RecipeHub_MongoDB_ERD.svg))
+The [system architecture diagram](02-System-Architecture/RecipeHub_Architecture.png) shows the Next.js and React frontend, Express API, MongoDB, authentication responsibilities, and Stripe/ImgBB integrations. An [SVG version](02-System-Architecture/RecipeHub_Architecture.svg) is also available.
 
-## 2. System Architecture Diagram
+## Application screenshots
 
-The system architecture diagram illustrates the interaction between the Next.js frontend, Express.js backend, MongoDB database, authentication mechanisms, and external services.
+The following existing captures illustrate the main interfaces:
 
-External integrations include Stripe for payment processing and ImgBB for image hosting.
-
-![RecipeHub system architecture](02-System-Architecture/RecipeHub_Architecture.png) ([SVG version](02-System-Architecture/RecipeHub_Architecture.svg))
-
-## 3. Application Screenshots
-
-This section provides visual evidence of the application's major features:
-
-- [Home page](03-Application-Screenshots/01-Home.png)
+- [Home](03-Application-Screenshots/01-Home.png)
 - [Recipe browsing](03-Application-Screenshots/02-Recipe-Browsing.png)
-- [Recipe details and reviews — view 1](03-Application-Screenshots/03.0-Recipe-Details-Reviews.png)
-- [Recipe details and reviews — view 2](03-Application-Screenshots/03.1-Recipe-Details-Reviews.png)
+- [Recipe details and reviews, first capture](03-Application-Screenshots/03.0-Recipe-Details-Reviews.png)
+- [Recipe details and reviews, second capture](03-Application-Screenshots/03.1-Recipe-Details-Reviews.png)
 - [Login](03-Application-Screenshots/04.0-Login.png) and [registration](03-Application-Screenshots/04.1-Register.png)
 - [Add recipe dashboard](03-Application-Screenshots/05-Add-Recipe-User-Dashboard.png)
 - [Admin dashboard](03-Application-Screenshots/06-Admin-Dashboard.png)
@@ -33,31 +25,12 @@ This section provides visual evidence of the application's major features:
 - [Purchased recipe](03-Application-Screenshots/08-Purchased-recipe.png)
 - [Admin transactions](03-Application-Screenshots/09-Admin-transaction-page.png)
 
-## 4. Technology Stack
+These are documentation screenshots, not proof of current deployment availability.
 
-- Frontend: Next.js and React
-- Backend: Node.js and Express.js
-- Database: MongoDB
-- Authentication: Better Auth and custom JWT middleware
-- Payment Processing: Stripe
-- Image Hosting: ImgBB
+## Usability evaluation
 
-## 5. Usability evaluation
+The [heuristic and code-based usability evaluation](04-Usability-Evaluation/Usability-Evaluation.md) records source and screenshot observations, recommendations, and limitations. It is not a participant study. A [participant evaluation template](04-Usability-Evaluation/Participant-Testing-Template.md) is provided for future validation.
 
-The [heuristic/code-based usability evaluation](04-Usability-Evaluation/Usability-Evaluation.md) reports source and screenshot observations without claiming participant results. A [participant testing template](04-Usability-Evaluation/Participant-Testing-Template.md) is available for future sessions.
+## Release notes
 
-## 6. Release notes
-
-The client and server have separate versions and repositories. See the [component release notes](05-Release-Notes/README.md). They are prepared notes, not published GitHub releases.
-
-## 7. Purpose
-
-These documents support the description of RecipeHub's database design, system architecture, technology stack, and implemented user-facing functionality. They describe the inspected codebase and are not a substitute for deployment or participant validation.
-
-## 6. Usability evaluation
-
-The [heuristic and code-based usability evaluation](04-Usability-Evaluation/Usability-Evaluation.md) reviews the available user journeys using implementation evidence and existing screenshots. It does not claim participant involvement. A separate [participant testing template](04-Usability-Evaluation/Participant-Testing-Template.md) is provided for future validation.
-
-## 7. Release notes
-
-RecipeHub's client and server have separate repositories and package versions. See the [component release notes index](05-Release-Notes/README.md). These notes are prepared locally and no GitHub release has been published.
+The [release notes index](05-Release-Notes/README.md) and client/server version notes describe the declared package versions for this combined repository. They are prepared documentation; no GitHub release was published as part of this work.

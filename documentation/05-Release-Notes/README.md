@@ -1,8 +1,8 @@
-# RecipeHub component release notes
+﻿# RecipeHub project release notes
 
-The client and server are maintained in separate Git repositories and have separate package versions. These release notes are prepared against the inspected source and current package versions; they are not published GitHub releases.
+These notes describe the client and server packages included in this combined `recipehub-project` repository. Their package versions are client `0.1.0` and server `1.0.0`. The repository history has no established tag convention, so no new version was invented. These files are prepared release notes; they are not a published GitHub release.
 
-- [Client release notes — 0.1.0](CLIENT-v0.1.0.md)
-- [Server release notes — 1.0.0](SERVER-v1.0.0.md)
+- [Client package — 0.1.0](CLIENT-v0.1.0.md)
+- [Server package — 1.0.0](SERVER-v1.0.0.md)
 
-No tags or established release-tag naming convention were available in the inspected local repository history. GitHub CLI is not installed in the current environment, so no release was created.
+The repository contains one Git root with `recipehub-client/` and `recipehub-server/` package roots. Repository links and recorded deployment URLs are listed in the [project README](../../README.md); current deployment availability is not asserted here.

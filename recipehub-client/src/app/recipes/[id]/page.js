@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { loadStripe } from '@stripe/stripe-js';
-import { Clock, ThumbsUp, Heart, AlertTriangle, Lock, ChefHat, Check, Loader2, Calendar } from 'lucide-react';
+import { Clock, ThumbsUp, Heart, AlertTriangle, Lock, ChefHat, Check, Loader2, Star } from 'lucide-react';
 
 export default function RecipeDetails() {
   const { id } = useParams();
@@ -17,6 +17,14 @@ export default function RecipeDetails() {
   const [isLiking, setIsLiking] = useState(false);
   const [isFavoriting, setIsFavoriting] = useState(false);
   const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [reviews, setReviews] = useState([]);
+  const [averageRating, setAverageRating] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [reviewMessage, setReviewMessage] = useState('');
 
   // Report Modal State
   const [showReportModal, setShowReportModal] = useState(false);
@@ -32,13 +40,73 @@ export default function RecipeDetails() {
       if (res.ok) {
         const data = await res.json();
         if (data.success) {
-          setRecipe(data.data);
+          const recipeData = data.recipe ?? data.data;
+          if (recipeData) {
+            setRecipe({
+              ...recipeData,
+              recipeName: recipeData.recipeName ?? recipeData.title,
+              recipeImage: recipeData.recipeImage ?? recipeData.image,
+              preparationTime: recipeData.preparationTime ?? recipeData.cookingTime
+            });
+          }
         }
       } else {
         router.push('/404');
       }
     } catch (error) {
       console.error("Failed to fetch recipe details:", error);
+    }
+  };
+
+  const fetchReviews = async () => {
+    setIsLoadingReviews(true);
+    try {
+      const res = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BASE_URL}/api/recipes/${id}/reviews`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success) {
+        setReviews(data.reviews || []);
+        setAverageRating(data.averageRating || 0);
+        setReviewCount(data.reviewCount || 0);
+        const ownReview = (data.reviews || []).find(review => review.isOwnReview);
+        if (ownReview) {
+          setReviewRating(ownReview.rating);
+          setReviewComment(ownReview.comment);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch recipe reviews:", error);
+    } finally {
+      setIsLoadingReviews(false);
+    }
+  };
+
+  const handleReviewSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) {
+      router.push('/login');
+      return;
+    }
+    if (isSubmittingReview) return;
+    setIsSubmittingReview(true);
+    setReviewMessage('');
+    try {
+      const res = await fetchWithAuth(`${process.env.NEXT_PUBLIC_BASE_URL}/api/recipes/${id}/reviews`, {
+        method: 'PUT',
+        body: JSON.stringify({ rating: reviewRating, comment: reviewComment })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setReviewMessage(data.message || 'Could not save your review. Please try again.');
+        return;
+      }
+      setReviewMessage('Your review has been saved.');
+      await fetchReviews();
+    } catch (error) {
+      console.error("Review request failed:", error);
+      setReviewMessage('Could not save your review. Please try again.');
+    } finally {
+      setIsSubmittingReview(false);
     }
   };
 
@@ -61,6 +129,7 @@ export default function RecipeDetails() {
     const loadAll = async () => {
       setLoading(true);
       await fetchDetails();
+      await fetchReviews();
       if (user) {
         await fetchPurchased();
       }
@@ -393,6 +462,93 @@ export default function RecipeDetails() {
           </div>
         )}
       </div>
+
+      {/* Ratings and Reviews */}
+      <section className="space-y-6 border-t border-border-custom pt-8" aria-labelledby="reviews-heading">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="reviews-heading" className="text-2xl font-bold text-foreground-custom">Ratings &amp; Reviews</h2>
+            <p className="mt-1 text-sm text-foreground-custom/65">
+              {reviewCount ? `${averageRating} out of 5 · ${reviewCount} ${reviewCount === 1 ? 'review' : 'reviews'}` : 'No reviews yet'}
+            </p>
+          </div>
+        </div>
+
+        {user ? (
+          <form onSubmit={handleReviewSubmit} className="space-y-4 rounded-3xl border border-border-custom bg-card-custom p-5 sm:p-6">
+            <h3 className="font-semibold text-foreground-custom">
+              {reviews.some(review => review.isOwnReview) ? 'Edit your review' : 'Write a review'}
+            </h3>
+            <div>
+              <span className="mb-2 block text-sm font-medium text-foreground-custom">Your rating</span>
+              <div className="flex items-center gap-1" role="radiogroup" aria-label="Rating from 1 to 5 stars">
+                {[1, 2, 3, 4, 5].map(value => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={reviewRating === value}
+                    aria-label={`${value} ${value === 1 ? 'star' : 'stars'}`}
+                    onClick={() => setReviewRating(value)}
+                    className="rounded-md p-1 text-amber-500 focus:outline-none focus:ring-2 focus:ring-brand"
+                  >
+                    <Star size={24} className={value <= reviewRating ? 'fill-current' : ''} />
+                  </button>
+                ))}
+              </div>
+            </div>
+            <label className="block space-y-2 text-sm font-medium text-foreground-custom">
+              <span>Your review</span>
+              <textarea
+                value={reviewComment}
+                onChange={e => setReviewComment(e.target.value)}
+                maxLength={1000}
+                required
+                rows={4}
+                placeholder="Share what you thought about this recipe..."
+                className="w-full resize-y rounded-xl border border-border-custom bg-background-custom p-3 text-sm font-normal text-foreground-custom focus:border-brand focus:outline-none"
+              />
+              <span className="block text-right text-xs font-normal text-foreground-custom/55">{reviewComment.length}/1000</span>
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button type="submit" disabled={isSubmittingReview} className="rounded-xl bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-hover disabled:opacity-60">
+                {isSubmittingReview ? 'Saving...' : reviews.some(review => review.isOwnReview) ? 'Update review' : 'Submit review'}
+              </button>
+              {reviewMessage && <p role="status" className="text-sm text-foreground-custom/70">{reviewMessage}</p>}
+            </div>
+          </form>
+        ) : (
+          <p className="rounded-2xl border border-border-custom bg-card-custom p-5 text-sm text-foreground-custom/70">
+            <button onClick={() => router.push('/login')} className="font-semibold text-brand hover:underline">Sign in</button> to rate and review this recipe.
+          </p>
+        )}
+
+        {isLoadingReviews ? (
+          <p className="text-sm text-foreground-custom/60">Loading reviews...</p>
+        ) : reviews.length ? (
+          <div className="space-y-4">
+            {reviews.map(review => (
+              <article key={`${review.userName}-${review.createdAt}`} className="rounded-2xl border border-border-custom bg-card-custom p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-foreground-custom">{review.userName}</p>
+                    <p className="mt-1 text-xs text-foreground-custom/55">
+                      {review.updatedAt ? new Date(review.updatedAt).toLocaleDateString() : ''}
+                      {review.createdAt !== review.updatedAt ? ' · edited' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-0.5 text-amber-500" aria-label={`${review.rating} out of 5 stars`}>
+                    {[1, 2, 3, 4, 5].map(value => <Star key={value} size={16} className={value <= review.rating ? 'fill-current' : ''} />)}
+                  </div>
+                </div>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground-custom/80">{review.comment}</p>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-foreground-custom/60">Be the first to review this recipe.</p>
+        )}
+      </section>
 
       {/* Report Modal */}
       {showReportModal && (
